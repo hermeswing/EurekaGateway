@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+eureka:
+  client:
+    fetch-registry: false
+    register-with-eureka: false
+    service-url:
+      #defaultZone: http://localhost:8761/eureka/         # Eureka Server 경로
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}       # http://localhost:8761/eureka/ 와 같은 설정임.
+
+spring:
+  application:
+    name: Eureka-Gateway
+  cloud:
+    gateway:
+      routes:
+        - id: service01
+          uri: http://localhost:8081
+          predicates:
+            - Path=/service01/**          # "Path" 반드시 첫글자 대문자
+        - id: service02
+          uri: http://localhost:8082
+          predicates:
+            - Path=/service02/**          # "Path" 반드시 첫글자 대문자
+
