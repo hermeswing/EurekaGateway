@@ -3,8 +3,8 @@ server:
 
 eureka:
   client:
-    fetch-registry: false
-    register-with-eureka: false
+    fetch-registry: true
+    register-with-eureka: true
     service-url:
       #defaultZone: http://localhost:8761/eureka/         # Eureka Server 경로
       defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}       # http://localhost:8761/eureka/ 와 같은 설정임.
@@ -14,13 +14,26 @@ spring:
     name: Eureka-Gateway
   cloud:
     gateway:
+      default-filters:
+        - name: GlobalFilter
+          args:
+            baseMessage: Spring Cloud Gateway Global Filter
+            preLogger: true
+            postLogger: true
       routes:
         - id: service01
           uri: http://localhost:8081
           predicates:
             - Path=/service01/**          # "Path" 반드시 첫글자 대문자
+          filters:
+#            - AddRequestHeader=first-request, first-request-header2
+#            - AddResponseHeader=first-response, first-response-header2
+            - name: CustomFilter
         - id: service02
           uri: http://localhost:8082
           predicates:
             - Path=/service02/**          # "Path" 반드시 첫글자 대문자
-
+          filters:
+#            - AddRequestHeader=second-request, second-request-header2
+#            - AddResponseHeader=second-response, second-response-header2
+            - name: CustomFilter

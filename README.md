@@ -107,6 +107,9 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class FilterConfig {
+  /**
+   * 각 Service 호출 시 추가적인 데이터를 추가할 수 있음.
+   */
   @Bean
   public RouteLocator gatewayRoutes(RouteLocatorBuilder builder) {
     return builder.routes()
@@ -115,8 +118,8 @@ public class FilterConfig {
                             .addResponseHeader("first-response", "first-response-header"))
                     .uri("http://localhost:8081"))
             .route(r -> r.path("/service02/**")
-                    .filters(f -> f.addRequestHeader("first-request", "second-request-header")
-                            .addResponseHeader("first-response", "second-response-header"))
+                    .filters(f -> f.addRequestHeader("second-request", "second-request-header")
+                            .addResponseHeader("second-response", "second-response-header"))
                     .uri("http://localhost:8082"))
             .build();
   }
@@ -150,7 +153,6 @@ spring:
           uri: http://localhost:8082
           predicates:
             - Path=/service02/**          # "Path" 반드시 첫글자 대문자
-
 ```
 
 ## Build
@@ -190,8 +192,15 @@ $ find . -name '*.jar'
 - Gradle 실행 : ./gradlew bootRun --args='--server.port=8080'
 
 ## 브라우저 실행
+- localhost:8080/service01/welcome
+
 ![크라우드 아키텍처](./md_img/service01.png)
 ![크라우드 아키텍처](./md_img/service02.png)
+
+- localhost:8080/service01/message
+- 'FilterConfig.java' 에서 넣은 추가적인 데이터를 확인할 수 있다.  
+![크라우드 아키텍처](./md_img/service01_message_01.png)
+![크라우드 아키텍처](./md_img/service01_message_02.png)
 
 ## Git Push
 ```git
@@ -385,3 +394,159 @@ spring:
 > https://velog.io/@rockstar/Spring-Cloud-Eureka-Server-%EC%84%A4%EC%A0%95-%EB%B0%8F-MSA-%ED%86%B5%EC%8B%A0-%EB%B0%A9%EB%B2%95  
 > https://velog.io/@ililil9482/MSA-%EA%B5%AC%EC%84%B1-Discovery-Gateway-Config  
 > https://github.com/Jimoou/springboot-microservices?tab=readme-ov-file  
+
+## EurekaGateway_202403301000 branch 생성
+```bash
+# Branch 생성
+$ git branch EurekaGateway_202403301000
+# Branch Checkout
+$ git checkout EurekaGateway_202403301000
+'EurekaGateway_202403301000' 브랜치로 전환합니다
+```
+
+#### CustomFilter.java
+```java
+package octopus.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilter;
+import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
+
+/**
+ * 사용자 Filter. JWT와 권한 설정을 할 수 있음.
+ */
+@Component
+@Slf4j
+public class CustomFilter extends AbstractGatewayFilterFactory<CustomFilter.Config> {
+
+  public static class Config {
+    // 설정정보를 추가한다.
+  }
+
+  public CustomFilter() {
+    super(Config.class);
+  }
+
+  @Override
+  public GatewayFilter apply(Config config) {
+    return ((exchange, chain) -> {
+      ServerHttpRequest request = exchange.getRequest();
+      ServerHttpResponse response = exchange.getResponse();
+
+      log.info("[사용자 전 처리 Filter] Request ID :: {}", request.getId());
+
+      return chain.filter(exchange).then(Mono.fromRunnable(() -> {
+        log.info("[사용자 후 처리 Filter]Response Status :: {}", response.getStatusCode());
+      }));
+    });
+  }
+}
+```
+#### CustomFilter 적용
+```yaml
+spring:
+  application:
+    name: Eureka-Gateway
+  cloud:
+    gateway:
+      routes:
+        - id: service01
+          uri: http://localhost:8081
+          predicates:
+            - Path=/service01/**          # "Path" 반드시 첫글자 대문자
+          filters:
+#            - AddRequestHeader=first-request, first-request-header2
+#            - AddResponseHeader=first-response, first-response-header2
+            - CustomFilter
+        - id: service02
+          uri: http://localhost:8082
+          predicates:
+            - Path=/service02/**          # "Path" 반드시 첫글자 대문자
+          filters:
+#            - AddRequestHeader=second-request, second-request-header2
+#            - AddResponseHeader=second-response, second-response-header2
+            - name: CustomFilter
+```
+
+#### GlobalFilter.java
+```java
+package octopus.config;
+
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilter;
+import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
+
+@Component
+@Slf4j
+public class GlobalFilter extends AbstractGatewayFilterFactory<GlobalFilter.Config> {
+    public GlobalFilter() {
+        super(Config.class);
+    }
+
+    @Override
+    public GatewayFilter apply(Config config) {
+        return ((exchange, chain) -> {
+            ServerHttpRequest request = exchange.getRequest();
+            ServerHttpResponse response = exchange.getResponse();
+
+            log.info("Global Filter baseMessage: {}, {}", config.getBaseMessage(), request.getRemoteAddress());
+            if (config.isPreLogger()) {
+                log.info("[Global 전 처리 Filter] request id -> {}", request.getId());
+            }
+            return chain.filter(exchange).then(Mono.fromRunnable(() -> {
+                if (config.isPostLogger()) {
+                    log.info("[Global 후 처리 Filter] response code -> {}", response.getStatusCode());
+                }
+            }));
+        });
+    }
+
+    @Data
+    public static class Config {
+        private String baseMessage;
+        private boolean preLogger;
+        private boolean postLogger;
+    }
+}
+```
+#### GlobalFilter 적용
+```yaml
+spring:
+  application:
+    name: Eureka-Gateway
+  cloud:
+    gateway:
+      default-filters:
+        - name: GlobalFilter
+          args:
+            baseMessage: Spring Cloud Gateway Global Filter
+            preLogger: true
+            postLogger: true
+      routes:
+        - id: service01
+          uri: http://localhost:8081
+          predicates:
+            - Path=/service01/**          # "Path" 반드시 첫글자 대문자
+          filters:
+#            - AddRequestHeader=first-request, first-request-header2
+#            - AddResponseHeader=first-response, first-response-header2
+            - CustomFilter
+        - id: service02
+          uri: http://localhost:8082
+          predicates:
+            - Path=/service02/**          # "Path" 반드시 첫글자 대문자
+          filters:
+#            - AddRequestHeader=second-request, second-request-header2
+#            - AddResponseHeader=second-response, second-response-header2
+            - name: CustomFilter
+```
+## 실행
